@@ -6,7 +6,7 @@
  */
 
 import { validateIR } from '@/lib/ir-validator';
-import { type IR } from '@/types/ir';
+import type { IR } from '@/types/ir';
 
 // ── Interfaces ──────────────────────────────────────────────
 
@@ -215,18 +215,74 @@ class LLMError extends Error {
 // ── JSON Extraction ─────────────────────────────────────────
 
 function extractJSON(raw: string): unknown {
-  // Try direct parse first
   const trimmed = raw.trim();
+
+  // 1. Direct parse
   try {
     return JSON.parse(trimmed);
   } catch {
-    // Try extracting from markdown code block
-    const codeBlockMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (codeBlockMatch) {
-      return JSON.parse(codeBlockMatch[1].trim());
-    }
-    throw new Error('Response is not valid JSON');
+    // continue to fallback strategies
   }
+
+  // 2. Markdown code block (```json ... ``` or ``` ... ```)
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch {
+      // continue
+    }
+  }
+
+  // 3. Find the first { ... } or [ ... ] top-level balanced block
+  const jsonStr = extractBalancedJSON(trimmed);
+  if (jsonStr) {
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      // continue
+    }
+  }
+
+  throw new Error('Response is not valid JSON');
+}
+
+/**
+ * Extract the first balanced JSON object or array from a string
+ * that may contain surrounding prose or markdown.
+ */
+function extractBalancedJSON(text: string): string | null {
+  const startIdx = text.search(/[{[]/);
+  if (startIdx === -1) return null;
+
+  const open = text[startIdx];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === open) depth++;
+    if (ch === close) depth--;
+    if (depth === 0) {
+      return text.slice(startIdx, i + 1);
+    }
+  }
+  return null;
 }
 
 /**
@@ -265,6 +321,65 @@ function getSuggestions(language: 'zh' | 'en'): string[] {
   ];
 }
 
+// ── Fallback IR Generation ───────────────────────────────────
+
+/**
+ * Build a simple sequential flowchart IR from raw user text.
+ * Splits the text into sentences / clauses and creates one process node per chunk.
+ * This guarantees the user always sees *something* on the canvas.
+ */
+function buildFallbackIR(text: string, language: 'zh' | 'en'): IR {
+  // Split by Chinese / English sentence-level punctuation, newlines, or semicolons
+  const raw = text
+    .split(/[。！？；\n;!?]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  // If splitting produced nothing useful, treat the whole text as one step
+  const steps = raw.length > 0 ? raw : [text.trim() || (language === 'zh' ? '流程' : 'Process')];
+
+  // Cap label length to keep the chart readable
+  const cap = (s: string) => (s.length > 40 ? s.slice(0, 37) + '...' : s);
+
+  const nodes: IR['nodes'] = [];
+  const edges: IR['edges'] = [];
+
+  // Start node
+  nodes.push({ id: 'node_0', label: language === 'zh' ? '开始' : 'Start', type: 'start' });
+
+  // Process nodes
+  steps.forEach((step, i) => {
+    nodes.push({ id: `node_${i + 1}`, label: cap(step), type: 'process' });
+  });
+
+  // End node
+  const endId = `node_${steps.length + 1}`;
+  nodes.push({ id: endId, label: language === 'zh' ? '结束' : 'End', type: 'end' });
+
+  // Edges: start → step1 → step2 → ... → end
+  for (let i = 0; i < nodes.length - 1; i++) {
+    edges.push({
+      id: `edge_${i + 1}`,
+      source: nodes[i].id,
+      target: nodes[i + 1].id,
+      type: 'normal',
+    });
+  }
+
+  return {
+    version: '1.0',
+    metadata: {
+      title: language === 'zh' ? '自动生成流程图' : 'Auto-generated flowchart',
+      createdAt: new Date().toISOString(),
+      sourceLanguage: language,
+      chartType: 'sequential',
+    },
+    nodes,
+    edges,
+    groups: [],
+  };
+}
+
 // ── Main Entry Point ────────────────────────────────────────
 
 export async function parseNaturalLanguage(
@@ -272,107 +387,47 @@ export async function parseNaturalLanguage(
 ): Promise<ParseResponse> {
   const { text, language } = request;
 
+  // Empty input → still produce a minimal fallback chart
   if (!text || text.trim().length === 0) {
-    return {
-      success: false,
-      error: {
-        code: 'PARSE_FAILED',
-        message: language === 'zh' ? '输入文本不能为空' : 'Input text cannot be empty',
-        suggestions: getSuggestions(language),
-      },
-    };
+    return { success: true, ir: buildFallbackIR(language === 'zh' ? '空流程' : 'Empty process', language) };
   }
 
   const systemPrompt = buildSystemPrompt(language);
   const userPrompt = buildUserPrompt(text, language);
 
-  let rawResponse: string;
+  // ── Attempt 1: call LLM ──────────────────────────────────
+  let rawResponse: string | null = null;
   try {
     rawResponse = await callLLM(systemPrompt, userPrompt);
-  } catch (err: unknown) {
-    if (err instanceof LLMError) {
-      return {
-        success: false,
-        error: {
-          code: err.code,
-          message: err.message,
-        },
-      };
-    }
-    return {
-      success: false,
-      error: {
-        code: 'LLM_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-
-  // First attempt: parse and validate
-  let ir: unknown;
-  try {
-    ir = extractJSON(rawResponse);
-    ir = normalizeIR(ir);
   } catch {
-    return {
-      success: false,
-      error: {
-        code: 'PARSE_FAILED',
-        message:
-          language === 'zh'
-            ? '无法解析 LLM 返回的 JSON 结构'
-            : 'Failed to parse JSON from LLM response',
-        suggestions: getSuggestions(language),
-      },
-    };
+    // LLM call failed — will fall through to fallback
   }
 
-  const firstValidation = validateIR(ir);
-  if (firstValidation.valid) {
-    return { success: true, ir: ir as IR };
-  }
-
-  // Retry once on schema validation failure
-  try {
-    const retryResponse = await callLLM(systemPrompt, userPrompt);
-    const retryIR = normalizeIR(extractJSON(retryResponse));
-    const retryValidation = validateIR(retryIR);
-
-    if (retryValidation.valid) {
-      return { success: true, ir: retryIR as IR };
+  if (rawResponse) {
+    // Try parse + validate
+    try {
+      const ir = normalizeIR(extractJSON(rawResponse));
+      const validation = validateIR(ir);
+      if (validation.valid) {
+        return { success: true, ir: ir as IR };
+      }
+    } catch {
+      // parse failed — try retry
     }
 
-    return {
-      success: false,
-      error: {
-        code: 'SCHEMA_INVALID',
-        message:
-          language === 'zh'
-            ? `生成结果不符合 IR Schema 规范：${retryValidation.errors?.join('; ') ?? ''}`
-            : `Generated result does not conform to IR Schema: ${retryValidation.errors?.join('; ') ?? ''}`,
-        suggestions: getSuggestions(language),
-      },
-    };
-  } catch (err: unknown) {
-    if (err instanceof LLMError) {
-      return {
-        success: false,
-        error: {
-          code: err.code,
-          message: err.message,
-        },
-      };
+    // ── Attempt 2: retry once ────────────────────────────────
+    try {
+      const retryResponse = await callLLM(systemPrompt, userPrompt);
+      const retryIR = normalizeIR(extractJSON(retryResponse));
+      const retryValidation = validateIR(retryIR);
+      if (retryValidation.valid) {
+        return { success: true, ir: retryIR as IR };
+      }
+    } catch {
+      // retry also failed — fall through to fallback
     }
-    return {
-      success: false,
-      error: {
-        code: 'SCHEMA_INVALID',
-        message:
-          language === 'zh'
-            ? `生成结果不符合 IR Schema 规范：${firstValidation.errors?.join('; ') ?? ''}`
-            : `Generated result does not conform to IR Schema: ${firstValidation.errors?.join('; ') ?? ''}`,
-        suggestions: getSuggestions(language),
-      },
-    };
   }
+
+  // ── Fallback: build IR directly from user text ─────────────
+  return { success: true, ir: buildFallbackIR(text, language) };
 }

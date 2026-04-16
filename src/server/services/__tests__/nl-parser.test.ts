@@ -253,31 +253,35 @@ describe('NL_Parser 单元测试', () => {
       expect(result.ir!.metadata.sourceLanguage).toBe('en');
     });
 
-    it('中文输入返回中文错误提示', async () => {
+    it('中文空输入返回 fallback IR', async () => {
       const result = await parseNaturalLanguage({
         text: '',
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.message).toContain('不能为空');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
+      expect(result.ir!.metadata.sourceLanguage).toBe('zh');
+      expect(result.ir!.metadata.chartType).toBe('sequential');
     });
 
-    it('英文输入返回英文错误提示', async () => {
+    it('英文空输入返回 fallback IR', async () => {
       const result = await parseNaturalLanguage({
         text: '',
         language: 'en',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.message).toContain('cannot be empty');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
+      expect(result.ir!.metadata.sourceLanguage).toBe('en');
+      expect(result.ir!.metadata.chartType).toBe('sequential');
     });
   });
 
   // ── 3. LLM timeout/error retry and prompt logic (Req 11.2, 11.3) ──
 
   describe('LLM 超时/错误处理', () => {
-    it('LLM 超时返回 LLM_TIMEOUT 错误码', async () => {
+    it('LLM 超时时返回 fallback IR', async () => {
       vi.stubGlobal('fetch', mockLLMTimeout());
 
       const result = await parseNaturalLanguage({
@@ -285,11 +289,12 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_TIMEOUT');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
+      expect(result.ir!.metadata.chartType).toBe('sequential');
     });
 
-    it('LLM HTTP 500 返回 LLM_ERROR 错误码', async () => {
+    it('LLM HTTP 500 时返回 fallback IR', async () => {
       vi.stubGlobal('fetch', mockLLMHttpError(500, 'Internal Server Error'));
 
       const result = await parseNaturalLanguage({
@@ -297,12 +302,11 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_ERROR');
-      expect(result.error!.message).toContain('500');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
     });
 
-    it('LLM HTTP 429 返回 LLM_ERROR 错误码', async () => {
+    it('LLM HTTP 429 时返回 fallback IR', async () => {
       vi.stubGlobal('fetch', mockLLMHttpError(429, 'Rate limited'));
 
       const result = await parseNaturalLanguage({
@@ -310,11 +314,11 @@ describe('NL_Parser 单元测试', () => {
         language: 'en',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_ERROR');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
     });
 
-    it('缺少 OPENAI_API_KEY 时返回 LLM_ERROR', async () => {
+    it('缺少 OPENAI_API_KEY 时返回 fallback IR', async () => {
       delete process.env.OPENAI_API_KEY;
 
       const result = await parseNaturalLanguage({
@@ -322,11 +326,11 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_ERROR');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
     });
 
-    it('LLM 返回空内容时返回 LLM_ERROR', async () => {
+    it('LLM 返回空内容时返回 fallback IR', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockImplementation(() =>
@@ -344,8 +348,8 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_ERROR');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
     });
   });
 
@@ -383,7 +387,7 @@ describe('NL_Parser 单元测试', () => {
       expect(result.ir).toBeDefined();
     });
 
-    it('两次校验均失败则返回 SCHEMA_INVALID 错误', async () => {
+    it('两次校验均失败则返回 fallback IR', async () => {
       const invalidIR = { version: '1.0', metadata: {}, nodes: [] };
       vi.stubGlobal('fetch', mockLLMResponse(JSON.stringify(invalidIR)));
 
@@ -392,13 +396,14 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('SCHEMA_INVALID');
-      expect(result.error!.suggestions).toBeDefined();
-      expect(result.error!.suggestions!.length).toBeGreaterThan(0);
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
+      expect(result.ir!.metadata.chartType).toBe('sequential');
+      // Fallback splits by punctuation, so nodes should include the user text
+      expect(result.ir!.nodes.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('首次校验失败、重试时 LLM 超时则返回 LLM_TIMEOUT', async () => {
+    it('首次校验失败、重试时 LLM 超时则返回 fallback IR', async () => {
       const invalidIR = { version: '1.0', metadata: {}, nodes: [] };
       let callCount = 0;
 
@@ -427,11 +432,11 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('LLM_TIMEOUT');
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
     });
 
-    it('LLM 返回非 JSON 内容时返回 PARSE_FAILED 并附带建议', async () => {
+    it('LLM 返回非 JSON 内容时返回 fallback IR', async () => {
       vi.stubGlobal('fetch', mockLLMResponse('This is not JSON at all'));
 
       const result = await parseNaturalLanguage({
@@ -439,10 +444,9 @@ describe('NL_Parser 单元测试', () => {
         language: 'zh',
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.code).toBe('PARSE_FAILED');
-      expect(result.error!.suggestions).toBeDefined();
-      expect(result.error!.suggestions!.length).toBeGreaterThan(0);
+      expect(result.success).toBe(true);
+      expect(result.ir).toBeDefined();
+      expect(result.ir!.metadata.chartType).toBe('sequential');
     });
   });
 });

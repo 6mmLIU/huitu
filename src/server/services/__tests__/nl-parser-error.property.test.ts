@@ -1,7 +1,8 @@
 /**
- * **Feature: paperflow, Property 16: 解析失败返回错误信息**
+ * **Feature: paperflow, Property 16: 解析始终返回有效 IR（fallback 兜底）**
  *
- * 对于任意无法被解析为有效流程结构的输入文本，NL_Parser 应返回包含非空错误消息和输入建议的错误响应。
+ * 对于任意输入文本，无论 LLM 返回什么内容（非 JSON、无效 IR、空内容），
+ * NL_Parser 都应返回 success: true 并附带一个合法的 IR 结构。
  *
  * **Validates: Requirements 11.1**
  */
@@ -11,8 +12,7 @@ import { parseNaturalLanguage } from '../nl-parser';
 
 /**
  * Helper: create a mock fetch that returns a given body string as the LLM
- * chat-completion response. This lets us control what `callLLM` receives
- * without hitting a real API.
+ * chat-completion response.
  */
 function mockFetchWithContent(content: string) {
   return vi.fn().mockImplementation(() =>
@@ -28,29 +28,34 @@ function mockFetchWithContent(content: string) {
 }
 
 /**
- * Asserts that a ParseResponse represents a proper error with non-empty
- * message and non-empty suggestions array.
+ * Asserts that a ParseResponse is successful with a structurally valid IR.
  */
-function assertErrorWithSuggestions(result: {
+function assertValidFallbackIR(result: {
   success: boolean;
-  error?: { message: string; suggestions?: string[] };
+  ir?: {
+    version: string;
+    metadata: { chartType: string; sourceLanguage: string };
+    nodes: unknown[];
+    edges: unknown[];
+    groups: unknown[];
+  };
 }) {
-  expect(result.success).toBe(false);
-  expect(result.error).toBeDefined();
-  expect(result.error!.message).toBeTruthy();
-  expect(result.error!.message.length).toBeGreaterThan(0);
-  expect(result.error!.suggestions).toBeDefined();
-  expect(Array.isArray(result.error!.suggestions)).toBe(true);
-  expect(result.error!.suggestions!.length).toBeGreaterThan(0);
-  for (const s of result.error!.suggestions!) {
-    expect(typeof s).toBe('string');
-    expect(s.length).toBeGreaterThan(0);
-  }
+  expect(result.success).toBe(true);
+  expect(result.ir).toBeDefined();
+  expect(result.ir!.version).toBe('1.0');
+  expect(result.ir!.metadata).toBeDefined();
+  expect(['sequential', 'conditional', 'architecture', 'tree']).toContain(
+    result.ir!.metadata.chartType,
+  );
+  expect(Array.isArray(result.ir!.nodes)).toBe(true);
+  expect(result.ir!.nodes.length).toBeGreaterThanOrEqual(1);
+  expect(Array.isArray(result.ir!.edges)).toBe(true);
+  expect(Array.isArray(result.ir!.groups)).toBe(true);
 }
 
-describe('Property 16: 解析失败返回错误信息', () => {
+
+describe('Property 16: 任意输入始终返回有效 IR', () => {
   beforeEach(() => {
-    // Provide a fake API key so callLLM doesn't bail out early
     process.env.OPENAI_API_KEY = 'test-key-for-property-test';
   });
 
@@ -59,12 +64,10 @@ describe('Property 16: 解析失败返回错误信息', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns error with non-empty message and suggestions when LLM returns non-JSON gibberish', async () => {
+  it('returns valid fallback IR when LLM returns non-JSON gibberish', async () => {
     await fc.assert(
       fc.asyncProperty(
-        // Random non-empty text as user input
         fc.string({ minLength: 1, maxLength: 100 }),
-        // Random non-JSON string that the LLM "returns"
         fc.string({ minLength: 1, maxLength: 200 }).filter((s) => {
           try {
             JSON.parse(s);
@@ -79,21 +82,17 @@ describe('Property 16: 解析失败返回错误信息', () => {
 
           const result = await parseNaturalLanguage({ text: inputText, language });
 
-          // If the input is whitespace-only, the service rejects it before calling LLM
-          // Either way, the result must be an error with suggestions
-          assertErrorWithSuggestions(result);
+          assertValidFallbackIR(result);
         },
       ),
       { numRuns: 100 },
     );
   });
 
-  it('returns error with non-empty message and suggestions when LLM returns invalid IR JSON', async () => {
+  it('returns valid fallback IR when LLM returns invalid IR JSON', async () => {
     await fc.assert(
       fc.asyncProperty(
-        // Non-empty user input text
         fc.string({ minLength: 1, maxLength: 100 }).filter((s) => s.trim().length > 0),
-        // Generate JSON that is NOT a valid IR (missing required fields)
         fc.oneof(
           fc.dictionary(
             fc.string({ minLength: 1, maxLength: 10 }),
@@ -106,28 +105,26 @@ describe('Property 16: 解析失败返回错误信息', () => {
         ).map((obj) => JSON.stringify(obj)),
         fc.constantFrom('zh' as const, 'en' as const),
         async (inputText, invalidIRJson, language) => {
-          // Both the first attempt and the retry return the same invalid IR
           vi.stubGlobal('fetch', mockFetchWithContent(invalidIRJson));
 
           const result = await parseNaturalLanguage({ text: inputText, language });
 
-          assertErrorWithSuggestions(result);
+          assertValidFallbackIR(result);
         },
       ),
       { numRuns: 100 },
     );
   });
 
-  it('returns error with non-empty message and suggestions for empty/whitespace-only input', async () => {
+  it('returns valid fallback IR for empty/whitespace-only input', async () => {
     await fc.assert(
       fc.asyncProperty(
-        // Generate empty or whitespace-only strings
         fc.constantFrom('', ' ', '  ', '\t', '\n', '\r\n', '   \t\n  '),
         fc.constantFrom('zh' as const, 'en' as const),
         async (whitespace, language) => {
           const result = await parseNaturalLanguage({ text: whitespace, language });
 
-          assertErrorWithSuggestions(result);
+          assertValidFallbackIR(result);
         },
       ),
       { numRuns: 100 },
