@@ -1,0 +1,37 @@
+{
+  "editor": {
+    "title": "PaperFlow 编辑器",
+    "placeholder": "在此输入自然语言描述，例如：首先读取数据，然后判断数据是否有效，如果有效则处理数据，否则报告错误，最后结束流程。",
+    "generate": "生成",
+    "generating": "生成中..."
+  },
+  "style": {
+    "title": "样式微调",
+    "zhFont": "中文字体",
+    "enFont": "英文字体",
+    "fontSize": "字号 (pt)",
+    "borderWidth": "边框粗细 (px)",
+    "fillColor": "填充色",
+    "borderColor": "边框色"
+  },
+  "canvas": {
+    "title": "流程图画布",
+    "placeholder": "在左侧输入文本并点击「生成」以预览流程图",
+    "loading": "渲染中...",
+    "exportSVG": "导出 SVG",
+    "exportPNG": "导出 PNG"
+  },
+  "common": {
+    "appName": "PaperFlow",
+    "appDescription": "学术论文智能流程图生成平台"
+  },
+  "error": {
+    "parseFailed": "无法识别流程结构，请尝试使用更明确的步骤描述",
+    "networkError": "服务暂时不可用，请点击重试",
+    "exportFailed": "导出失败，请检查流程图是否完整",
+    "retry": "重试"
+  },
+  "browser": {
+    "unsupported": "请升级浏览器至最新版本以获得最佳体验"
+  }
+}

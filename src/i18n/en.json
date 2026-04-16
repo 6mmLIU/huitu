@@ -1,0 +1,37 @@
+{
+  "editor": {
+    "title": "PaperFlow Editor",
+    "placeholder": "Enter a natural language description, e.g.: First read the data, then check if the data is valid. If valid, process the data; otherwise, report an error. Finally, end the process.",
+    "generate": "Generate",
+    "generating": "Generating..."
+  },
+  "style": {
+    "title": "Style Settings",
+    "zhFont": "Chinese Font",
+    "enFont": "English Font",
+    "fontSize": "Font Size (pt)",
+    "borderWidth": "Border Width (px)",
+    "fillColor": "Fill Color",
+    "borderColor": "Border Color"
+  },
+  "canvas": {
+    "title": "Flow Canvas",
+    "placeholder": "Enter text on the left and click \"Generate\" to preview the flowchart",
+    "loading": "Rendering...",
+    "exportSVG": "Export SVG",
+    "exportPNG": "Export PNG"
+  },
+  "common": {
+    "appName": "PaperFlow",
+    "appDescription": "Intelligent Flowchart Generator for Academic Papers"
+  },
+  "error": {
+    "parseFailed": "Unable to parse the flow structure. Please try using clearer step descriptions.",
+    "networkError": "Service temporarily unavailable. Please click retry.",
+    "exportFailed": "Export failed. Please check if the flowchart is complete.",
+    "retry": "Retry"
+  },
+  "browser": {
+    "unsupported": "Please upgrade your browser to the latest version for the best experience."
+  }
+}

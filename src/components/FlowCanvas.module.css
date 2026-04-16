@@ -1,0 +1,87 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background: #f8f8f8;
+  overflow: hidden;
+  position: relative;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.exportButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.exportButton {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #333;
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.exportButton:hover {
+  background: #f0f0f0;
+  border-color: #1a73e8;
+}
+
+.canvasArea {
+  flex: 1;
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvasArea.grabbing {
+  cursor: grabbing;
+}
+
+.svgWrapper {
+  transform-origin: 0 0;
+  display: inline-block;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  color: #999;
+  font-size: 14px;
+  user-select: none;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  color: #666;
+  font-size: 14px;
+}

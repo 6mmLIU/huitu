@@ -1,24 +1,38 @@
 {
-  "name": "paperflow-temp",
+  "name": "paperflow",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "format": "prettier --write ."
   },
   "dependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "dagre": "^0.8.5",
+    "elkjs": "^0.11.1",
+    "monaco-editor": "^0.55.1",
     "next": "16.2.3",
+    "next-intl": "^4.9.1",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
-    "typescript": "^5"
+    "fast-check": "^4.6.0",
+    "prettier": "^3.8.2",
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["version", "metadata", "nodes", "edges", "groups"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "metadata": {
+      "type": "object",
+      "required": ["createdAt", "sourceLanguage", "chartType"],
+      "properties": {
+        "title": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "sourceLanguage": { "enum": ["zh", "en"] },
+        "chartType": {
+          "enum": ["sequential", "conditional", "architecture", "tree"]
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "type"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^node_" },
+          "label": { "type": "string", "minLength": 1 },
+          "type": {
+            "enum": ["process", "decision", "start", "end", "subprocess"]
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          },
+          "size": {
+            "type": "object",
+            "properties": {
+              "width": { "type": "number", "minimum": 0 },
+              "height": { "type": "number", "minimum": 0 }
+            }
+          },
+          "groupId": { "type": "string" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "target", "type"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^edge_" },
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "label": { "type": "string" },
+          "type": { "enum": ["normal", "conditional"] }
+        }
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "children"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^group_" },
+          "label": { "type": "string" },
+          "children": { "type": "array", "items": { "type": "string" } },
+          "parentGroupId": { "type": "string" }
+        }
+      }
+    }
+  }
+}
