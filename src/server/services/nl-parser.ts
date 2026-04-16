@@ -323,61 +323,307 @@ function getSuggestions(language: 'zh' | 'en'): string[] {
 
 // ── Fallback IR Generation ───────────────────────────────────
 
+/** Cap label length to keep the chart readable */
+const capLabel = (s: string) => (s.length > 40 ? s.slice(0, 37) + '...' : s);
+
+/** Remove markdown / list markers from a line, return clean text */
+function stripMarkers(line: string): string {
+  return line
+    .replace(/^#{1,6}\s+/, '')       // markdown headings
+    .replace(/^\d+[\.\)、]\s*/, '')   // numbered lists: 1. 1) 1、
+    .replace(/^[-*+•·]\s*/, '')      // bullet lists
+    .replace(/^\s*/, '')
+    .trim();
+}
+
 /**
- * Build a simple sequential flowchart IR from raw user text.
- * Splits the text into sentences / clauses and creates one process node per chunk.
- * This guarantees the user always sees *something* on the canvas.
+ * Parsed line with detected heading depth.
+ * depth 0 = top-level heading (#), depth 1 = ## , etc.
+ * depth -1 = regular content line (leaf)
  */
-function buildFallbackIR(text: string, language: 'zh' | 'en'): IR {
-  // Split by Chinese / English sentence-level punctuation, newlines, or semicolons
-  const raw = text
+interface ParsedLine {
+  raw: string;
+  text: string;
+  depth: number; // heading depth (0-based), -1 for content
+}
+
+/**
+ * Parse text into structured lines, detecting headings and hierarchy.
+ */
+function parseLines(text: string): ParsedLine[] {
+  const lines = text.split('\n');
+  const result: ParsedLine[] = [];
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) continue;
+
+    // Markdown headings: # = depth 0, ## = depth 1, etc.
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      result.push({ raw, text: headingMatch[2].trim(), depth: headingMatch[1].length - 1 });
+      continue;
+    }
+
+    // Numbered / bullet items at different indentation levels
+    const indentMatch = raw.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
+    const cleaned = stripMarkers(trimmed);
+    if (cleaned.length === 0) continue;
+
+    // Treat indented items or list items as deeper levels
+    const isList = /^(\d+[\.\)、]|[-*+•·])\s/.test(trimmed);
+    if (isList) {
+      // indent-based depth: 0-1 spaces = depth 1, 2-3 = depth 2, etc.
+      const listDepth = Math.floor(indent / 2) + 1;
+      result.push({ raw, text: cleaned, depth: listDepth });
+    } else {
+      // Plain text line — treat as content at depth -1
+      result.push({ raw, text: cleaned, depth: -1 });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Tree node used during fallback IR construction.
+ */
+interface TreeNode {
+  id: string;
+  label: string;
+  children: TreeNode[];
+  depth: number;
+}
+
+/**
+ * Build a tree from parsed lines.
+ * Headings / list items become parent nodes; content lines become leaves.
+ */
+function buildTree(parsed: ParsedLine[], language: 'zh' | 'en'): TreeNode {
+  let nodeCounter = 0;
+  const nextId = () => `node_${++nodeCounter}`;
+
+  // Virtual root
+  const root: TreeNode = {
+    id: nextId(),
+    label: '',
+    children: [],
+    depth: -1,
+  };
+
+  // Stack tracks the current parent chain: [root, h1, h2, ...]
+  const stack: TreeNode[] = [root];
+
+  for (const line of parsed) {
+    const node: TreeNode = {
+      id: nextId(),
+      label: capLabel(line.text),
+      children: [],
+      depth: line.depth,
+    };
+
+    if (line.depth === -1) {
+      // Content line → attach to current deepest parent
+      stack[stack.length - 1].children.push(node);
+    } else {
+      // Heading / list item → find the right parent
+      // Pop stack until we find a parent with lower depth
+      while (stack.length > 1 && stack[stack.length - 1].depth >= line.depth) {
+        stack.pop();
+      }
+      stack[stack.length - 1].children.push(node);
+      stack.push(node);
+    }
+  }
+
+  // If root has only content children and no structure, try sentence splitting
+  if (root.children.length === 0 || (root.children.every(c => c.depth === -1) && root.children.length <= 2)) {
+    return buildTreeFromSentences(parsed.map(p => p.text).join(' '), language, nodeCounter);
+  }
+
+  // Set root label
+  if (root.children.length === 1 && root.children[0].children.length > 0) {
+    // Single top-level heading → promote it as root label
+    root.label = root.children[0].label;
+    root.children = root.children[0].children;
+  } else {
+    root.label = language === 'zh' ? '主题' : 'Overview';
+  }
+
+  return root;
+}
+
+/**
+ * Fallback for unstructured text: split by sentences and group by
+ * topic proximity (every ~3 sentences form a group).
+ */
+function buildTreeFromSentences(text: string, language: 'zh' | 'en', startCounter: number): TreeNode {
+  let nodeCounter = startCounter;
+  const nextId = () => `node_${++nodeCounter}`;
+
+  const sentences = text
     .split(/[。！？；\n;!?]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
 
-  // If splitting produced nothing useful, treat the whole text as one step
-  const steps = raw.length > 0 ? raw : [text.trim() || (language === 'zh' ? '流程' : 'Process')];
+  if (sentences.length === 0) {
+    return {
+      id: nextId(),
+      label: language === 'zh' ? '流程' : 'Process',
+      children: [],
+      depth: 0,
+    };
+  }
 
-  // Cap label length to keep the chart readable
-  const cap = (s: string) => (s.length > 40 ? s.slice(0, 37) + '...' : s);
+  // If very few sentences, just make a flat tree
+  if (sentences.length <= 3) {
+    return {
+      id: nextId(),
+      label: language === 'zh' ? '概述' : 'Overview',
+      children: sentences.map(s => ({
+        id: nextId(),
+        label: capLabel(s),
+        children: [],
+        depth: 1,
+      })),
+      depth: 0,
+    };
+  }
 
-  const nodes: IR['nodes'] = [];
-  const edges: IR['edges'] = [];
-
-  // Start node
-  nodes.push({ id: 'node_0', label: language === 'zh' ? '开始' : 'Start', type: 'start' });
-
-  // Process nodes
-  steps.forEach((step, i) => {
-    nodes.push({ id: `node_${i + 1}`, label: cap(step), type: 'process' });
-  });
-
-  // End node
-  const endId = `node_${steps.length + 1}`;
-  nodes.push({ id: endId, label: language === 'zh' ? '结束' : 'End', type: 'end' });
-
-  // Edges: start → step1 → step2 → ... → end
-  for (let i = 0; i < nodes.length - 1; i++) {
-    edges.push({
-      id: `edge_${i + 1}`,
-      source: nodes[i].id,
-      target: nodes[i + 1].id,
-      type: 'normal',
+  // Group sentences into chunks of ~3 for visual structure
+  const chunkSize = 3;
+  const groups: TreeNode[] = [];
+  for (let i = 0; i < sentences.length; i += chunkSize) {
+    const chunk = sentences.slice(i, i + chunkSize);
+    const groupLabel = capLabel(chunk[0]); // Use first sentence as group title
+    groups.push({
+      id: nextId(),
+      label: groupLabel,
+      children: chunk.slice(1).map(s => ({
+        id: nextId(),
+        label: capLabel(s),
+        children: [],
+        depth: 2,
+      })),
+      depth: 1,
     });
   }
 
   return {
+    id: nextId(),
+    label: language === 'zh' ? '知识结构' : 'Knowledge Structure',
+    children: groups,
+    depth: 0,
+  };
+}
+
+/**
+ * Convert a tree structure into IR nodes, edges, and groups.
+ */
+function treeToIR(root: TreeNode, language: 'zh' | 'en'): IR {
+  const nodes: IR['nodes'] = [];
+  const edges: IR['edges'] = [];
+  const groups: IR['groups'] = [];
+  let edgeCounter = 0;
+  let groupCounter = 0;
+
+  const nextEdgeId = () => `edge_${++edgeCounter}`;
+  const nextGroupId = () => `group_${++groupCounter}`;
+
+  // Determine chart type based on tree shape
+  const hasGroups = root.children.some(c => c.children.length > 0);
+  const chartType = hasGroups ? 'tree' : 'sequential';
+
+  function processNode(
+    treeNode: TreeNode,
+    parentGroupId?: string,
+  ): void {
+    const hasChildren = treeNode.children.length > 0;
+    const nodeType = hasChildren ? 'subprocess' : 'process';
+
+    nodes.push({
+      id: treeNode.id,
+      label: treeNode.label,
+      type: nodeType,
+      ...(parentGroupId ? { groupId: parentGroupId } : {}),
+    });
+
+    if (hasChildren) {
+      // Create a group for this node's children
+      const gid = nextGroupId();
+      const childIds = treeNode.children.map(c => c.id);
+      groups.push({
+        id: gid,
+        label: treeNode.label,
+        children: childIds,
+        ...(parentGroupId ? { parentGroupId } : {}),
+      });
+
+      // Process children and create edges from parent to each child
+      for (const child of treeNode.children) {
+        edges.push({
+          id: nextEdgeId(),
+          source: treeNode.id,
+          target: child.id,
+          type: 'normal',
+        });
+        processNode(child, gid);
+      }
+    }
+  }
+
+  // Process root
+  processNode(root);
+
+  return {
     version: '1.0',
     metadata: {
-      title: language === 'zh' ? '自动生成流程图' : 'Auto-generated flowchart',
+      title: root.label || (language === 'zh' ? '自动生成流程图' : 'Auto-generated flowchart'),
       createdAt: new Date().toISOString(),
       sourceLanguage: language,
-      chartType: 'sequential',
+      chartType,
     },
     nodes,
     edges,
-    groups: [],
+    groups,
   };
+}
+
+/**
+ * Build a structured fallback IR from user text.
+ * Analyzes text structure (headings, lists, indentation) to produce
+ * a tree/architecture chart with groups, not just a flat sequential chain.
+ */
+function buildFallbackIR(text: string, language: 'zh' | 'en'): IR {
+  const parsed = parseLines(text);
+
+  // If no meaningful lines were parsed, produce a minimal chart
+  if (parsed.length === 0) {
+    const label = language === 'zh' ? '空流程' : 'Empty process';
+    return {
+      version: '1.0',
+      metadata: {
+        title: label,
+        createdAt: new Date().toISOString(),
+        sourceLanguage: language,
+        chartType: 'sequential',
+      },
+      nodes: [
+        { id: 'node_1', label: language === 'zh' ? '开始' : 'Start', type: 'start' },
+        { id: 'node_2', label, type: 'process' },
+        { id: 'node_3', label: language === 'zh' ? '结束' : 'End', type: 'end' },
+      ],
+      edges: [
+        { id: 'edge_1', source: 'node_1', target: 'node_2', type: 'normal' },
+        { id: 'edge_2', source: 'node_2', target: 'node_3', type: 'normal' },
+      ],
+      groups: [],
+    };
+  }
+
+  const tree = buildTree(parsed, language);
+  return treeToIR(tree, language);
 }
 
 // ── Main Entry Point ────────────────────────────────────────
