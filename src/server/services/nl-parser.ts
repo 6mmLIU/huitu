@@ -63,7 +63,10 @@ const IR_SCHEMA_DESCRIPTION = `{
       "parentGroupId": "string (optional, parent group id)"
     }
   ]
-}`;
+}
+
+IMPORTANT: The root object MUST always contain all five required fields: "version", "metadata", "nodes", "edges", "groups".
+Even if there are no groups, you MUST include "groups": [].`;
 
 const CHART_TYPE_GUIDANCE: Record<string, { zh: string; en: string }> = {
   sequential: {
@@ -226,6 +229,25 @@ function extractJSON(raw: string): unknown {
   }
 }
 
+/**
+ * Normalize LLM output to ensure required IR fields exist.
+ * Some models omit empty arrays like "groups": [].
+ */
+function normalizeIR(obj: unknown): unknown {
+  if (!obj || typeof obj !== 'object') return obj;
+  const ir = obj as Record<string, unknown>;
+  if (!Array.isArray(ir.groups)) {
+    ir.groups = [];
+  }
+  if (!Array.isArray(ir.nodes)) {
+    ir.nodes = [];
+  }
+  if (!Array.isArray(ir.edges)) {
+    ir.edges = [];
+  }
+  return ir;
+}
+
 // ── Suggestions ─────────────────────────────────────────────
 
 function getSuggestions(language: 'zh' | 'en'): string[] {
@@ -290,6 +312,7 @@ export async function parseNaturalLanguage(
   let ir: unknown;
   try {
     ir = extractJSON(rawResponse);
+    ir = normalizeIR(ir);
   } catch {
     return {
       success: false,
@@ -312,7 +335,7 @@ export async function parseNaturalLanguage(
   // Retry once on schema validation failure
   try {
     const retryResponse = await callLLM(systemPrompt, userPrompt);
-    const retryIR = extractJSON(retryResponse);
+    const retryIR = normalizeIR(extractJSON(retryResponse));
     const retryValidation = validateIR(retryIR);
 
     if (retryValidation.valid) {
