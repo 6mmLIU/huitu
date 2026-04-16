@@ -22,10 +22,10 @@ vi.mock('@/server/middleware/rate-limiter', async (importOriginal) => {
   };
 });
 
+import { POST } from '@/app/api/parse/route';
 import { authenticateRequest } from '@/server/middleware/auth';
 import { checkRateLimit } from '@/server/middleware/rate-limiter';
 import { parseNaturalLanguage } from '@/server/services/nl-parser';
-import { POST } from './route';
 
 const mockAuth = vi.mocked(authenticateRequest);
 const mockRateLimit = vi.mocked(checkRateLimit);
