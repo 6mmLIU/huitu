@@ -317,7 +317,10 @@ async function layoutWithElk(
       ir.nodes.some((n) => n.id === edge.target),
     )
     .map((edge) => {
-      const elkEdge = layoutResult.edges?.find((e) => e.id === edge.id);
+      // ELK returns sections at runtime but its TS types don't include them
+      const elkEdge = layoutResult.edges?.find((e) => e.id === edge.id) as
+        | { sections?: Array<{ startPoint: { x: number; y: number }; endPoint: { x: number; y: number }; bendPoints?: Array<{ x: number; y: number }> }> }
+        | undefined;
       const points: Array<{ x: number; y: number }> = [];
       if (elkEdge?.sections) {
         for (const section of elkEdge.sections) {
@@ -338,9 +341,11 @@ async function layoutWithElk(
       };
     });
 
+  // ELK layout result includes width/height at runtime but TS types don't declare them
+  const elkResult = layoutResult as { width?: number; height?: number };
   const dimensions = {
-    width: (layoutResult.width ?? 0) + 40,
-    height: (layoutResult.height ?? 0) + 40,
+    width: (elkResult.width ?? 0) + 40,
+    height: (elkResult.height ?? 0) + 40,
   };
 
   return { nodes: positionedNodes, edges: positionedEdges, dimensions };

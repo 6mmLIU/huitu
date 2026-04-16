@@ -10,7 +10,7 @@
  */
 
 import type { StyleConfig } from '@/types/style';
-import type { LayoutResult } from './render-engine';
+import type { LayoutResult, PositionedEdge, PositionedNode } from './render-engine';
 
 // ---------------------------------------------------------------------------
 // SVG namespace

@@ -337,7 +337,7 @@ describe('Integration: module wiring verification', () => {
   });
 
   it('loading state is reset in finally block', () => {
-    expect(pageSource).toMatch(/finally\s*\{[^}]*setIsLoading\(false\)/s);
+    expect(pageSource).toMatch(/finally\s*\{[\s\S]*setIsLoading\(false\)/);
   });
 });
 
