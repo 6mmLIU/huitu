@@ -88,7 +88,12 @@ export default function Home() {
       try {
         const res = await fetch('/api/parse', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(process.env.NEXT_PUBLIC_PAPERFLOW_API_KEY
+              ? { 'x-api-key': process.env.NEXT_PUBLIC_PAPERFLOW_API_KEY }
+              : {}),
+          },
           body: JSON.stringify({ text, language: locale }),
         });
 
